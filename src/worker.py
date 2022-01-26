@@ -390,6 +390,14 @@ class WORKER(object):
                                                             device=self.local_rank)
                         dis_acml_loss += real_dict["adv_output"].mean()*0 + self.LOSS.r1_lambda * self.r1_penalty
 
+                    elif self.LOSS.apply_r1_reg and (self.OPTIMIZATION.d_updates_per_step*current_step + step_index) % self.STYLEGAN2.d_reg_interval == 0:
+                        real_images.requires_grad_(True)
+                        real_images_ = self.AUG.series_augment(real_images)
+                        real_dict = self.Dis(real_images_, real_labels)
+                        self.r1_penalty = misc.enable_allreduce(real_dict) + losses.stylegan_cal_r1_reg(adv_output=real_dict["adv_output"],
+                                                                                                        images=real_images_)
+                        dis_acml_loss += (self.STYLEGAN2.d_reg_interval*self.LOSS.r1_lambda)*self.r1_penalty
+
                     # adjust gradients for applying gradient accumluation trick
                     dis_acml_loss = dis_acml_loss / self.OPTIMIZATION.acml_steps
                     batch_counter += 1
@@ -405,26 +413,6 @@ class WORKER(object):
                 self.scaler.step(self.OPTIMIZATION.d_optimizer)
                 self.scaler.update()
             else:
-                self.OPTIMIZATION.d_optimizer.step()
-
-            if self.LOSS.apply_r1_reg and (self.OPTIMIZATION.d_updates_per_step*current_step + step_index) % self.STYLEGAN2.d_reg_interval == 0:
-                self.OPTIMIZATION.d_optimizer.zero_grad()
-                for acml_index in range(self.OPTIMIZATION.acml_steps):
-                    real_images = real_image_basket[batch_counter - acml_index - 1].to(self.local_rank, non_blocking=True)
-                    real_labels = real_label_basket[batch_counter - acml_index - 1].to(self.local_rank, non_blocking=True)
-                    real_images.requires_grad_(True)
-                    real_dict = self.Dis(self.AUG.series_augment(real_images), real_labels)
-                    self.r1_penalty = misc.enable_allreduce(real_dict) + self.r1_lambda*losses.stylegan_cal_r1_reg(adv_output=real_dict["adv_output"],
-                                                                                                                   images=real_images)
-                    self.r1_penalty.backward()
-
-                    if self.AUG.apply_ada:
-                        self.dis_sign_real += torch.tensor((real_dict["adv_output"].sign().sum().item(),
-                                                            self.OPTIMIZATION.batch_size),
-                                                        device=self.local_rank)
-                        self.dis_logit_real += torch.tensor((real_dict["adv_output"].sum().item(),
-                                                            self.OPTIMIZATION.batch_size),
-                                                            device=self.local_rank)
                 self.OPTIMIZATION.d_optimizer.step()
 
             # apply ada heuristics
@@ -537,6 +525,33 @@ class WORKER(object):
                         fake_zcr_loss = -1 * self.l2_loss(fake_images, fake_images_eps)
                         gen_acml_loss += self.LOSS.g_lambda * fake_zcr_loss
 
+                    # apply path length regularization
+                    if self.STYLEGAN2.apply_pl_reg and (self.OPTIMIZATION.g_updates_per_step*current_step + step_index) % self.STYLEGAN2.g_reg_interval == 0:
+                        for acml_index in range(self.OPTIMIZATION.acml_steps):
+                            fake_images, fake_labels, fake_images_eps, trsp_cost, ws = sample.generate_images(
+                                z_prior=self.MODEL.z_prior,
+                                truncation_factor=-1.0,
+                                batch_size=self.OPTIMIZATION.batch_size // 2,
+                                z_dim=self.MODEL.z_dim,
+                                num_classes=self.DATA.num_classes,
+                                y_sampler="totally_random",
+                                radius=self.LOSS.radius,
+                                generator=self.Gen,
+                                discriminator=self.Dis,
+                                is_train=True,
+                                LOSS=self.LOSS,
+                                RUN=self.RUN,
+                                device=self.local_rank,
+                                generator_mapping=self.Gen_mapping,
+                                generator_synthesis=self.Gen_synthesis,
+                                is_stylegan=self.is_stylegan,
+                                style_mixing_p=self.cfgs.STYLEGAN2.style_mixing_p,
+                                cal_trsp_cost=True if self.LOSS.apply_lo else False)
+
+                            self.pl_reg_loss = fake_images[:,0,0,0].mean()*0 + \
+                                self.pl_reg.cal_pl_reg(fake_images=fake_images, ws=ws)
+                            gen_acml_loss += (self.STYLEGAN2.pl_weight*self.STYLEGAN2.g_reg_interval)*self.pl_reg_loss
+
                     # adjust gradients for applying gradient accumluation trick
                     gen_acml_loss = gen_acml_loss / self.OPTIMIZATION.acml_steps
 
@@ -551,36 +566,6 @@ class WORKER(object):
                 self.scaler.step(self.OPTIMIZATION.g_optimizer)
                 self.scaler.update()
             else:
-                self.OPTIMIZATION.g_optimizer.step()
-
-            # apply path length regularization
-            if self.STYLEGAN2.apply_pl_reg and (self.OPTIMIZATION.g_updates_per_step*current_step + step_index) % self.STYLEGAN2.g_reg_interval == 0:
-                self.OPTIMIZATION.g_optimizer.zero_grad()
-                for acml_index in range(self.OPTIMIZATION.acml_steps):
-                    fake_images, fake_labels, fake_images_eps, trsp_cost, ws = sample.generate_images(
-                        z_prior=self.MODEL.z_prior,
-                        truncation_factor=-1.0,
-                        batch_size=self.OPTIMIZATION.batch_size // 2,
-                        z_dim=self.MODEL.z_dim,
-                        num_classes=self.DATA.num_classes,
-                        y_sampler="totally_random",
-                        radius=self.LOSS.radius,
-                        generator=self.Gen,
-                        discriminator=self.Dis,
-                        is_train=True,
-                        LOSS=self.LOSS,
-                        RUN=self.RUN,
-                        device=self.local_rank,
-                        generator_mapping=self.Gen_mapping,
-                        generator_synthesis=self.Gen_synthesis,
-                        is_stylegan=self.is_stylegan,
-                        style_mixing_p=self.cfgs.STYLEGAN2.style_mixing_p,
-                        cal_trsp_cost=True if self.LOSS.apply_lo else False)
-
-                    self.pl_reg_loss = fake_images[:,0,0,0].mean()*0 + \
-                        self.pl_lambda*self.pl_reg.cal_pl_reg(fake_images=fake_images, ws=ws)
-                    self.pl_reg_loss.backward()
-
                 self.OPTIMIZATION.g_optimizer.step()
 
             # if ema is True: update parameters of the Gen_ema in adaptive way
