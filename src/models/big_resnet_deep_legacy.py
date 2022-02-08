@@ -369,16 +369,16 @@ class Discriminator(nn.Module):
                     h = F.normalize(h, dim=1)
                 cls_output = self.linear2(h)
             elif self.d_cond_mtd == "PD":
-                adv_output = adv_output + torch.sum(torch.mul(self.embedding(label), h), 1)
+                adv_output = adv_output + torch.sum(torch.mul(0 * self.embedding(label), h), 1)
             elif self.d_cond_mtd in ["2C", "D2DCE"]:
                 embed = self.linear2(h)
-                proxy = self.embedding(label)
+                proxy = 0 * self.embedding(label)
                 if self.normalize_d_embed:
                     embed = F.normalize(embed, dim=1)
                     proxy = F.normalize(proxy, dim=1)
             elif self.d_cond_mtd == "MD":
                 idx = torch.LongTensor(range(label.size(0))).to(label.device)
-                adv_output = adv_output[idx, label]
+                adv_output = 0 * adv_output[idx, label]
             elif self.d_cond_mtd in ["W/O", "MH"]:
                 pass
             else:
@@ -393,7 +393,7 @@ class Discriminator(nn.Module):
                     mi_cls_output = self.linear_mi(h)
                 elif self.d_cond_mtd in ["2C", "D2DCE"]:
                     mi_embed = self.linear_mi(h)
-                    mi_proxy = self.embedding_mi(label)
+                    mi_proxy = 0 * self.embedding_mi(label)
                     if self.normalize_d_embed:
                         mi_embed = F.normalize(mi_embed, dim=1)
                         mi_proxy = F.normalize(mi_proxy, dim=1)
