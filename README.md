@@ -13,6 +13,8 @@
 
 - StudioGAN supports CodeCarbon to track CO2 emission from our compute and visualizes this using wandb logging system.
 
+- StudioGAN contains StyleGAN2 and StyleGAN3 implementations. We will upload pre-trained models (StyleGAN2, StyleGAN3-t, and StyleGAN3-r) on AFHQ-v2 datasets.
+
 #  Release Notes (v.0.3.0)
 - Add SOTA GANs: LGAN, TACGAN, StyleGAN2, MDGAN, MHGAN, ADCGAN, ReACGAN.
 - Add five types of differentiable augmentation: CR, DiffAugment, ADA, SimCLR, BYOL.
@@ -65,6 +67,7 @@
 | [**ICRGAN**](https://arxiv.org/abs/2002.04724) | AAAI'21 |  Big ResNet | cBN | PD | Hinge | True |
 | [**ADCGAN**](https://arxiv.org/abs/2107.10060) | arXiv'21 | Big ResNet | cBN | ADC | Hinge | True |
 | [**ReACGAN**](https://arxiv.org/abs/2111.01118) | Neurips'21 | Big ResNet | cBN | D2D-CE | Hinge | True |
+| [**StyleGAN3**](https://nvlabs.github.io/stylegan3/) | Neurips'21 | StyleGAN3 | cAaIN | SPD | Logistic | True |
 
 GC/DC indicates the way how we inject label information to the Generator or Discriminator.
 
@@ -527,7 +530,7 @@ PyTorch Density and Coverage: https://github.com/clovaai/generative-evaluation-p
 PyTorch clean-FID: https://github.com/GaParmar/clean-fid
 
 ## License
-PyTorch-StudioGAN is an open-source library under the MIT license (MIT). However, portions of the library are avaiiable under distinct license terms: StyleGAN and StyleGAN-ADA are licensed under [NVIDIA source code license](https://github.com/POSTECH-CVLab/PyTorch-StudioGAN/blob/master/LICENSE-NVIDIA), Synchronized batch normalization is licensed under [MIT license](https://github.com/POSTECH-CVLab/PyTorch-StudioGAN/blob/master/src/sync_batchnorm/LICENSE), HDF5 generator is licensed under [MIT license](https://github.com/POSTECH-CVLab/PyTorch-StudioGAN/blob/master/src/utils/hdf5.py), differentiable SimCLR-style augmentations is licensed under [MIT license](https://github.com/POSTECH-CVLab/PyTorch-StudioGAN/blob/master/src/utils/simclr_aug.py), and clean-FID is licensed under [MIT license](https://github.com/POSTECH-CVLab/PyTorch-StudioGAN/blob/master/src/utils/resize.py).
+PyTorch-StudioGAN is an open-source library under the MIT license (MIT). However, portions of the library are avaiiable under distinct license terms: StyleGAN2, StyleGAN2-ADA, and StyleGAN3 are licensed under [NVIDIA source code license](https://github.com/POSTECH-CVLab/PyTorch-StudioGAN/blob/master/LICENSE-NVIDIA), Synchronized batch normalization is licensed under [MIT license](https://github.com/POSTECH-CVLab/PyTorch-StudioGAN/blob/master/src/sync_batchnorm/LICENSE), HDF5 generator is licensed under [MIT license](https://github.com/POSTECH-CVLab/PyTorch-StudioGAN/blob/master/src/utils/hdf5.py), differentiable SimCLR-style augmentations is licensed under [MIT license](https://github.com/POSTECH-CVLab/PyTorch-StudioGAN/blob/master/src/utils/simclr_aug.py), and clean-FID is licensed under [MIT license](https://github.com/POSTECH-CVLab/PyTorch-StudioGAN/blob/master/src/utils/resize.py).
 
 ## Citation
 StudioGAN is established for the following research projects. Please cite our work if you use StudioGAN.
