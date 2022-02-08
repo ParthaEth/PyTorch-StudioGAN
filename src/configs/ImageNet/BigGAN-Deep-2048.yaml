@@ -23,8 +23,8 @@ MODEL:
 LOSS:
   adv_loss: "hinge"
 OPTIMIZATION:
-  batch_size: 512
-  acml_steps: 4
+  batch_size: 1024
+  acml_steps: 2
   g_lr: 0.00005
   d_lr: 0.0002
   beta1: 0.0
