@@ -30,7 +30,7 @@ def load_configs_initialize_training():
     parser.add_argument("--entity", type=str, default=None, help="entity for wandb logging")
     parser.add_argument("--project", type=str, default=None, help="project name for wandb logging")
 
-    parser.add_argument("-cfg", "--cfg_file", type=str, default="./src/configs/CIFAR10/ContraGAN.yaml")
+    parser.add_argument("-cfg", "--cfg_file", type=str)
     parser.add_argument("-data", "--data_dir", type=str, default=None)
     parser.add_argument("-save", "--save_dir", type=str, default="./")
     parser.add_argument("-ckpt", "--ckpt_dir", type=str, default=None)
@@ -75,7 +75,7 @@ def load_configs_initialize_training():
     parser.add_argument("-t", "--train", action="store_true")
     parser.add_argument("-hdf5", "--load_train_hdf5", action="store_true", help="load train images from a hdf5 file for fast I/O")
     parser.add_argument("-l", "--load_data_in_memory", action="store_true", help="put the whole train dataset on the main memory for fast I/O")
-    parser.add_argument("-metrics", "--eval_metrics", nargs='+', default=['fid'],
+    parser.add_argument("-metrics", "--eval_metrics", nargs='+', default=['disc_top_5', 'fid'],
                         help="evaluation metrics to use during training, a subset list of ['fid', 'is', 'prdc'] or none")
     parser.add_argument("--num_eval", type=int, default=1, help="number of runs for final evaluation.")
     parser.add_argument("--resize_fn", type=str, default="legacy", help="which mode to use PIL.bicubic resizing for calculating clean metrics\
@@ -125,6 +125,7 @@ def load_configs_initialize_training():
     gpus_per_node, rank = torch.cuda.device_count(), torch.cuda.current_device()
 
     cfgs = config.Configurations(args.cfg_file)
+
     cfgs.update_cfgs(run_cfgs, super="RUN")
     cfgs.OPTIMIZATION.world_size = gpus_per_node * cfgs.RUN.total_nodes
     cfgs.check_compatability()

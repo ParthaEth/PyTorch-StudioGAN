@@ -2,6 +2,7 @@ DATA:
   name: "ImageNet"
   img_size: 128
   num_classes: 1000
+#  fid_file_path: None
 MODEL:
   backbone: "big_resnet_deep_legacy"
   g_cond_mtd: "cBN"
@@ -20,10 +21,13 @@ MODEL:
   apply_g_ema: True
   g_ema_decay: 0.9999
   g_ema_start: 20000
+  disc_classifier: True  # Enable classification using discriminator
 LOSS:
   adv_loss: "hinge"
+  best_metric_name: 'disc_top_5'  # Used while evaluation for determining best model
+
 OPTIMIZATION:
-  batch_size: 1024
+  batch_size: 2 #1024
   acml_steps: 2
   g_lr: 0.00005
   d_lr: 0.0002

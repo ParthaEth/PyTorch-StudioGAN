@@ -7,7 +7,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 import utils.ops as ops
 import utils.misc as misc
 
@@ -294,20 +293,20 @@ class Discriminator(nn.Module):
         else:
             self.linear1 = MODULES.d_linear(in_features=self.out_dims[-1], out_features=1, bias=True)
 
-        # double num_classes for Auxiliary Discriminative Classifier
-        if self.aux_cls_type == "ADC":
-            num_classes = num_classes * 2
-
-        # linear and embedding layers for discriminator conditioning
-        if self.d_cond_mtd == "AC":
-            self.linear2 = MODULES.d_linear(in_features=self.out_dims[-1], out_features=num_classes, bias=False)
-        elif self.d_cond_mtd == "PD":
-            self.embedding = MODULES.d_embedding(num_classes, self.out_dims[-1])
-        elif self.d_cond_mtd in ["2C", "D2DCE"]:
-            self.linear2 = MODULES.d_linear(in_features=self.out_dims[-1], out_features=d_embed_dim, bias=True)
-            self.embedding = MODULES.d_embedding(num_classes, d_embed_dim)
-        else:
-            pass
+        # # double num_classes for Auxiliary Discriminative Classifier
+        # if self.aux_cls_type == "ADC":
+        #     num_classes = num_classes * 2
+        #
+        # # linear and embedding layers for discriminator conditioning
+        # if self.d_cond_mtd == "AC":
+        #     self.linear2 = MODULES.d_linear(in_features=self.out_dims[-1], out_features=num_classes, bias=False)
+        # elif self.d_cond_mtd == "PD":
+        #     self.embedding = MODULES.d_embedding(num_classes, self.out_dims[-1])
+        # elif self.d_cond_mtd in ["2C", "D2DCE"]:
+        #     self.linear2 = MODULES.d_linear(in_features=self.out_dims[-1], out_features=d_embed_dim, bias=True)
+        #     self.embedding = MODULES.d_embedding(num_classes, d_embed_dim)
+        # else:
+        #     pass
 
         # linear and embedding layers for evolved classifier-based GAN
         if self.aux_cls_type == "TAC":
@@ -328,6 +327,11 @@ class Discriminator(nn.Module):
             self.info_conti_mu_linear = MODULES.d_linear(in_features=self.out_dims[-1], out_features=out_features, bias=False)
             self.info_conti_var_linear = MODULES.d_linear(in_features=self.out_dims[-1], out_features=out_features, bias=False)
 
+        if self.MODEL.disc_classifier:
+            self.disc_classifier_layer = MODULES.d_linear(in_features=self.out_dims[-1], out_features=self.num_classes, bias=False)
+            self.disc_classification_func = nn.Softmax(dim=1)  # TODO This seems to be unused.
+            # import ipdb; ipdb.set_trace()
+
         if d_init:
             ops.init_weights(self.modules, d_init)
 
@@ -343,16 +347,15 @@ class Discriminator(nn.Module):
             bottom_h, bottom_w = h.shape[2], h.shape[3]
             h = self.activation(h)
             h = torch.sum(h, dim=[2, 3])
-
             # adversarial training
             adv_output = torch.squeeze(self.linear1(h))
 
             # make class labels odd (for fake) or even (for real) for ADC
-            if self.aux_cls_type == "ADC":
-                if adc_fake:
-                    label = label*2 + 1
-                else:
-                    label = label*2
+            # if self.aux_cls_type == "ADC":
+            #     if adc_fake:
+            #         label = label*2 + 1
+            #     else:
+            #         label = label*2
 
             # forward pass through InfoGAN Q head
             if self.MODEL.info_type in ["discrete", "both"]:
@@ -361,42 +364,47 @@ class Discriminator(nn.Module):
                 info_conti_mu = self.info_conti_mu_linear(h/(bottom_h*bottom_w))
                 info_conti_var = torch.exp(self.info_conti_var_linear(h/(bottom_h*bottom_w)))
 
-            # class conditioning
-            if self.d_cond_mtd == "AC":
-                if self.normalize_d_embed:
-                    for W in self.linear2.parameters():
-                        W = F.normalize(W, dim=1)
-                    h = F.normalize(h, dim=1)
-                cls_output = self.linear2(h)
-            elif self.d_cond_mtd == "PD":
-                adv_output = adv_output + torch.sum(torch.mul(self.embedding(label), h), 1)
-            elif self.d_cond_mtd in ["2C", "D2DCE"]:
-                embed = self.linear2(h)
-                proxy = self.embedding(label)
-                if self.normalize_d_embed:
-                    embed = F.normalize(embed, dim=1)
-                    proxy = F.normalize(proxy, dim=1)
-            elif self.d_cond_mtd == "MD":
-                idx = torch.LongTensor(range(label.size(0))).to(label.device)
-                adv_output = adv_output[idx, label]
-            elif self.d_cond_mtd in ["W/O", "MH"]:
-                pass
-            else:
-                raise NotImplementedError
-
-            # extra conditioning for TACGAN and ADCGAN
-            if self.aux_cls_type == "TAC":
-                if self.d_cond_mtd == "AC":
-                    if self.normalize_d_embed:
-                        for W in self.linear_mi.parameters():
-                            W = F.normalize(W, dim=1)
-                    mi_cls_output = self.linear_mi(h)
-                elif self.d_cond_mtd in ["2C", "D2DCE"]:
-                    mi_embed = self.linear_mi(h)
-                    mi_proxy = self.embedding_mi(label)
-                    if self.normalize_d_embed:
-                        mi_embed = F.normalize(mi_embed, dim=1)
-                        mi_proxy = F.normalize(mi_proxy, dim=1)
+            # # class conditioning
+            # if self.d_cond_mtd == "AC":
+            #     if self.normalize_d_embed:
+            #         for W in self.linear2.parameters():
+            #             W = F.normalize(W, dim=1)
+            #         h = F.normalize(h, dim=1)
+            #     cls_output = self.linear2(h)
+            # elif self.d_cond_mtd == "PD":
+            #     adv_output = adv_output + torch.sum(torch.mul(self.embedding(label), h), 1)
+            # elif self.d_cond_mtd in ["2C", "D2DCE"]:
+            #     embed = self.linear2(h)
+            #     proxy = self.embedding(label)
+            #     if self.normalize_d_embed:
+            #         embed = F.normalize(embed, dim=1)
+            #         proxy = F.normalize(proxy, dim=1)
+            # elif self.d_cond_mtd == "MD":
+            #     idx = torch.LongTensor(range(label.size(0))).to(label.device)
+            #     adv_output = adv_output[idx, label]
+            # elif self.d_cond_mtd in ["W/O", "MH"]:
+            #     pass
+            # else:
+            #     raise NotImplementedError
+            #
+            # # extra conditioning for TACGAN and ADCGAN
+            # if self.aux_cls_type == "TAC":
+            #     if self.d_cond_mtd == "AC":
+            #         if self.normalize_d_embed:
+            #             for W in self.linear_mi.parameters():
+            #                 W = F.normalize(W, dim=1)
+            #         mi_cls_output = self.linear_mi(h)
+            #     elif self.d_cond_mtd in ["2C", "D2DCE"]:
+            #         mi_embed = self.linear_mi(h)
+            #         mi_proxy = self.embedding_mi(label)
+            #         if self.normalize_d_embed:
+            #             mi_embed = F.normalize(mi_embed, dim=1)
+            #             mi_proxy = F.normalize(mi_proxy, dim=1)
+        if self.MODEL.disc_classifier:
+            # import ipdb; ipdb.set_trace()
+            predicted_label = self.disc_classifier_layer(h)
+        else:
+            predicted_label = None
         return {
             "h": h,
             "adv_output": adv_output,
@@ -409,5 +417,6 @@ class Discriminator(nn.Module):
             "mi_cls_output": mi_cls_output,
             "info_discrete_c_logits": info_discrete_c_logits,
             "info_conti_mu": info_conti_mu,
-            "info_conti_var": info_conti_var
+            "info_conti_var": info_conti_var,
+            "predicted_label": predicted_label,
         }
