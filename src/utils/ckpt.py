@@ -54,6 +54,7 @@ def load_ckpt(model, optimizer, ckpt_path, load_model=False, load_opt=False, loa
             aa_p = ckpt["ada_p"]
         best_step = ckpt["best_step"]
         best_fid = ckpt["best_fid"]
+        best_eval_score = ckpt["best_eval_score"]
 
         try:
             epoch = ckpt["epoch"]
@@ -71,7 +72,8 @@ def load_ckpt(model, optimizer, ckpt_path, load_model=False, load_opt=False, loa
             total_emission = ckpt["total_emission"]
         except:
             total_emission = 0.0
-        return seed, run_name, step, epoch, topk, aa_p, best_step, best_fid, best_ckpt_path, total_emission
+        return seed, run_name, step, epoch, topk, aa_p, best_step, best_fid, best_ckpt_path, total_emission, \
+               best_eval_score
 
 
 def load_StudioGAN_ckpts(ckpt_dir, load_best, Gen, Dis, g_optimizer, d_optimizer, run_name, apply_g_ema, Gen_ema, ema,

@@ -49,6 +49,8 @@ class Configurations(object):
         # number of image channels in dataset. //image_shape[0]
         self.DATA.img_channels = 3
 
+        self.DATA.fid_file_path = None
+
         # -----------------------------------------------------------------------------
         # Model settings
         # -----------------------------------------------------------------------------
@@ -118,6 +120,8 @@ class Configurations(object):
         self.MODEL.info_num_conti_c = "N/A"
         # dimension of discrete c to use in InfoGAN (one-hot)
         self.MODEL.info_dim_discrete_c = "N/A"
+        # add discriminator classifier
+        self.MODEL.disc_classifier = False
 
         # -----------------------------------------------------------------------------
         # loss settings
@@ -215,6 +219,7 @@ class Configurations(object):
         self.LOSS.lecam_ema_start_iter = "N/A"
         # decay rate for the EMALosses
         self.LOSS.lecam_ema_decay = "N/A"
+        self.LOSS.best_metric_name = None
 
         # -----------------------------------------------------------------------------
         # optimizer settings
@@ -630,7 +635,8 @@ class Configurations(object):
     def check_compatability(self):
         if len(self.RUN.eval_metrics):
             for item in self.RUN.eval_metrics:
-                assert item in ["is", "fid", "prdc", "none"], "-metrics option can only contain is, fid, prdc or none for skipping evaluation."
+                assert item in ["is", "fid", "prdc", "none", "disc_top_5", "disc_top_1", "disc_ce_loss"], \
+                    "-metrics option can only contain is, fid, prdc or none for skipping evaluation."
 
         if self.RUN.load_data_in_memory:
             assert self.RUN.load_train_hdf5, "load_data_in_memory option is appliable with the load_train_hdf5 (-hdf5) option."

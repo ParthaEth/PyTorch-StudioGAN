@@ -51,13 +51,16 @@ LOG_FORMAT = ("Step: {step:>6} "
               "Dis_loss: {dis_loss:<.4} "
               "Cls_loss: {cls_loss:<.4} "
               "Topk: {topk:>4} "
-              "aa_p: {aa_p:<.4} ")
+              "aa_p: {aa_p:<.4} "
+              "t_disc_clas_loss: {total_disc_classification_loss:<.4} "
+              )
+
 
 
 class WORKER(object):
     def __init__(self, cfgs, run_name, Gen, Gen_mapping, Gen_synthesis, Dis, Gen_ema, Gen_ema_mapping, Gen_ema_synthesis,
                  ema, eval_model, train_dataloader, eval_dataloader, global_rank, local_rank, mu, sigma, logger, aa_p,
-                 best_step, best_fid, best_ckpt_path, loss_list_dict, metric_dict_during_train):
+                 best_step, best_fid, best_ckpt_path, loss_list_dict, metric_dict_during_train, best_eval_score):
         self.cfgs = cfgs
         self.run_name = run_name
         self.Gen = Gen
@@ -79,6 +82,7 @@ class WORKER(object):
         self.aa_p = aa_p
         self.best_step = best_step
         self.best_fid = best_fid
+        self.best_eval_score = best_eval_score
         self.best_ckpt_path = best_ckpt_path
         self.loss_list_dict = loss_list_dict
         self.metric_dict_during_train = metric_dict_during_train
@@ -157,6 +161,8 @@ class WORKER(object):
         else:
             pass
 
+        if self.MODEL.disc_classifier:
+            self.classification_loss_function = nn.CrossEntropyLoss()
         if self.DATA.name == "CIFAR10":
             self.num_eval = {"train": 50000, "test": 10000}
         elif self.DATA.name == "CIFAR100":
@@ -226,6 +232,7 @@ class WORKER(object):
     # -----------------------------------------------------------------------------
     def train_discriminator(self, current_step):
         batch_counter = 0
+        disc_loss_dict = {}
         # make GAN be trainable before starting training
         misc.make_GAN_trainable(self.Gen, self.Gen_ema, self.Dis)
         # toggle gradients of the generator and discriminator
@@ -298,10 +305,10 @@ class WORKER(object):
                     if self.AUG.apply_ada or self.AUG.apply_apa:
                         self.dis_sign_real += torch.tensor((real_dict["adv_output"].sign().sum().item(),
                                                             self.OPTIMIZATION.batch_size),
-                                                        device=self.local_rank)
+                                                            device=self.local_rank)
                         self.dis_sign_fake += torch.tensor((fake_dict["adv_output"].sign().sum().item(),
                                                             self.OPTIMIZATION.batch_size),
-                                                        device=self.local_rank)
+                                                            device=self.local_rank)
                         self.dis_logit_real += torch.tensor((real_dict["adv_output"].sum().item(),
                                                             self.OPTIMIZATION.batch_size),
                                                             device=self.local_rank)
@@ -436,6 +443,16 @@ class WORKER(object):
                             self.dis_logit_real += torch.tensor((real_dict["adv_output"].sum().item(),
                                                                 self.OPTIMIZATION.batch_size),
                                                                 device=self.local_rank)
+                    if self.MODEL.disc_classifier:
+                        # import ipdb; ipdb.set_trace()
+                        real_classification_loss = self.classification_loss_function(real_dict['predicted_label'],
+                                                                                     real_dict['label'])
+                        fake_classification_loss = self.classification_loss_function(fake_dict['predicted_label'],
+                                                                                     fake_dict['label'])
+                        total_classification_loss = real_classification_loss + fake_classification_loss
+                        disc_loss_dict['total_classification_loss'] = total_classification_loss
+                        dis_acml_loss += total_classification_loss
+
 
                     # adjust gradients for applying gradient accumluation trick
                     dis_acml_loss = dis_acml_loss / self.OPTIMIZATION.acml_steps
@@ -503,7 +520,7 @@ class WORKER(object):
                     p.data.clamp_(-self.LOSS.wc_bound, self.LOSS.wc_bound)
         if self.RUN.empty_cache:
             torch.cuda.empty_cache()
-        return real_cond_loss, dis_acml_loss
+        return real_cond_loss, dis_acml_loss, disc_loss_dict
 
     # -----------------------------------------------------------------------------
     # train Generator
@@ -688,7 +705,8 @@ class WORKER(object):
     # -----------------------------------------------------------------------------
     # log training statistics
     # -----------------------------------------------------------------------------
-    def log_train_statistics(self, current_step, real_cond_loss, gen_acml_loss, dis_acml_loss, total_emission):
+    def log_train_statistics(self, current_step, real_cond_loss, gen_acml_loss, dis_acml_loss, total_emission,
+                             disc_loss_dict):
         self.wandb_step = current_step + 1
         if self.MODEL.d_cond_mtd in self.MISC.classifier_based_GAN:
             cls_loss = real_cond_loss.item()
@@ -704,6 +722,7 @@ class WORKER(object):
             cls_loss=cls_loss,
             topk=int(self.topk) if self.LOSS.apply_topk else "N/A",
             aa_p=self.aa_p if self.AUG.apply_ada or self.AUG.apply_apa else "N/A",
+            total_disc_classification_loss=disc_loss_dict['total_classification_loss']
         )
         self.logger.info(log_message)
 
@@ -881,7 +900,9 @@ class WORKER(object):
                     self.logger.info("FID score (Step: {step}, Using {type} moments): {FID}".format(
                         step=step, type=self.RUN.ref_dataset, FID=fid_score))
                     if self.best_fid is None or fid_score <= self.best_fid:
-                        self.best_fid, self.best_step, is_best = fid_score, step, True
+                        # self.best_fid, self.best_step, is_best = fid_score, step, True
+                        self.best_fid, self.best_step = fid_score, step
+
                     if writing:
                         wandb.log({"FID score": fid_score}, step=self.wandb_step)
                         metric_dict.update({"FID": fid_score})
@@ -916,7 +937,31 @@ class WORKER(object):
                         wandb.log({"Coverage": cvg}, step=self.wandb_step)
                         metric_dict.update({"Improved_Precision": prc, "Improved_Recall": rec, "Density": dns, "Coverage": cvg})
 
+            _disc_top1, _disc_top5, _disc_ce_loss = self.validate_discriminator_classifier()
+
             if self.global_rank == 0:
+                if self.LOSS.best_metric_name.upper() == 'FID':
+                    _curr_score = fid_score
+                elif self.LOSS.best_metric_name.upper() == 'DISC_TOP1':
+                    _curr_score = _disc_top1
+                elif self.LOSS.best_metric_name.upper() == 'DISC_TOP5':
+                    _curr_score = _disc_top5
+                elif self.LOSS.best_metric_name.upper() == 'DISC_CE_LOSS':
+                    _curr_score = _disc_ce_loss
+                else:
+                    self.logger.info(f'No Discriminator Classification Loss found')
+                    _curr_score = 0
+
+                if (self.best_eval_score is None or _curr_score < self.best_eval_score) and \
+                        self.MODEL.best_metric_name.upper() == 'FID':
+
+                    self.best_eval_score = _curr_score
+                    is_best = True
+                elif (self.best_eval_score is None or _curr_score > self.best_eval_score) and \
+                        self.MODEL.best_metric_name.upper() != 'FID':
+                    self.best_eval_score = _curr_score
+                    is_best = True
+
                 if training:
                     save_dict = misc.accm_values_convert_dict(list_dict=self.metric_dict_during_train,
                                                               value_dict=metric_dict,
@@ -957,7 +1002,8 @@ class WORKER(object):
             "best_step": self.best_step,
             "best_fid": self.best_fid,
             "best_fid_ckpt": self.RUN.ckpt_dir,
-            "total_emission": total_emission
+            "total_emission": total_emission,
+            "best_eval_score": self.best_eval_score
         }
 
         if self.Gen_ema is not None:
@@ -1548,9 +1594,7 @@ class WORKER(object):
                                                                          GAN_train=GAN_train,
                                                                          GAN_test=GAN_test)
             if is_pre_trained_model:
-                epoch_trained, best_top1, best_top5, best_epoch = ckpt.load_GAN_train_test_model(model=model,
-                                                                                                 mode=mode,
-                                                                                                 optimizer=optimizer,
+                epoch_trained, best_top1, best_top5, best_epoch = ckpt.load_GAN_train_test_model(model=model, mode=mode, optimizer=optimizer,
                                                                                                  RUN=self.RUN)
 
         for current_epoch in tqdm(range(epoch_trained, cas_setting["epochs"])):
@@ -1664,4 +1708,32 @@ class WORKER(object):
         if self.local_rank == 0:
             self.logger.info("Top 1-acc {top1.val:.4f} ({top1.avg:.4f})\t"
                              "Top 5-acc {top5.val:.4f} ({top5.avg:.4f})".format(top1=valid_top1_acc, top5=valid_top5_acc))
+        return valid_top1_acc.avg, valid_top5_acc.avg, valid_loss.avg
+
+    def validate_discriminator_classifier(self):
+        if self.local_rank == 0:
+            self.logger.info(f"Starting Valdiation for Discrimanotr Classifier")
+        with torch.no_grad():
+            self.Dis.eval()  # TODO this might not be the best way bcoz forward func has eval flag
+            valid_top1_acc, valid_top5_acc, valid_loss = misc.AverageMeter(), misc.AverageMeter(), misc.AverageMeter()
+            for i, (images, labels) in enumerate(self.eval_dataloader):
+
+                images, labels = images.to(self.local_rank), labels.to(self.local_rank)
+
+                output = self.Dis(images, labels)['predicted_label']
+                ce_loss = self.ce_loss(output, labels)  # TODO: should we take ce loss after softmax
+
+                valid_acc1, valid_acc5 = misc.accuracy(output.data, labels, topk=(1, 5))
+
+                valid_loss.update(ce_loss.item(), images.size(0))
+                valid_top1_acc.update(valid_acc1.item(), images.size(0))
+                valid_top5_acc.update(valid_acc5.item(), images.size(0))
+
+            if self.local_rank == 0:
+                self.logger.info("Top 1-acc {top1.val:.4f} ({top1.avg:.4f})\t"
+                                 "Top 5-acc {top5.val:.4f} ({top5.avg:.4f})\t"
+                                 "Avg CE Loss {ce_loss.avg:.2f}".format(top1=valid_top1_acc, top5=valid_top5_acc,
+                                                                ce_loss=valid_loss))
+        self.Dis.train()
+        self.logger.info(f'Finishd validation of discriminator classifier.')
         return valid_top1_acc.avg, valid_top5_acc.avg, valid_loss.avg

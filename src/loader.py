@@ -10,7 +10,7 @@ import json
 import os
 import random
 import warnings
-
+import numpy as np
 from torch.backends import cudnn
 from torch.utils.data import DataLoader
 from torch.nn import DataParallel
@@ -39,10 +39,14 @@ def load_worker(local_rank, cfgs, gpus_per_node, run_name, hdf5_path):
     # -----------------------------------------------------------------------------
     # define default variables for loading ckpt or evaluating the trained GAN model.
     # -----------------------------------------------------------------------------
-    step, epoch, topk, best_step, best_fid, best_ckpt_path, total_emission, is_best = \
-        0, 0, cfgs.OPTIMIZATION.batch_size, 0, None, None, 0.0, False
+    step, epoch, topk, best_step, best_fid, best_ckpt_path, total_emission, is_best, best_eval_score = \
+        0, 0, cfgs.OPTIMIZATION.batch_size, 0, None, None, 0.0, False, None
     aa_p = cfgs.AUG.ada_initial_augment_p if cfgs.AUG.ada_initial_augment_p != "N/A" else cfgs.AUG.apa_initial_augment_p
     mu, sigma, eval_model, num_rows, num_cols = None, None, None, 10, 8
+
+    if cfgs.DATA.fid_file_path is not None:
+        mu, sigma = np.load(cfgs.DATA.fid_file_path)
+    # TODO Partha read npz file for fid above
     loss_list_dict = {"gen_loss": [], "dis_loss": [], "cls_loss": []}
     metric_dict_during_train = {}
     if "none" in cfgs.RUN.eval_metrics:
@@ -130,7 +134,7 @@ def load_worker(local_rank, cfgs, gpus_per_node, run_name, hdf5_path):
             logger.info("Load {name} {ref} dataset.".format(name=cfgs.DATA.name, ref=cfgs.RUN.ref_dataset))
         eval_dataset = Dataset_(data_name=cfgs.DATA.name,
                                 data_dir=cfgs.RUN.data_dir,
-                                train=True if cfgs.RUN.ref_dataset == "train" else False,
+                                train=True if cfgs.RUN.ref_dataset == "train" else False,  # TODO fix it to false maybe
                                 crop_long_edge=False if cfgs.DATA.name in cfgs.MISC.no_proc_data else True,
                                 resize_size=None if cfgs.DATA.name in cfgs.MISC.no_proc_data else cfgs.DATA.img_size,
                                 random_flip=False,
@@ -221,7 +225,7 @@ def load_worker(local_rank, cfgs, gpus_per_node, run_name, hdf5_path):
     if cfgs.RUN.ckpt_dir is not None:
         if local_rank == 0:
             os.remove(join(cfgs.RUN.save_dir, "logs", run_name + ".log"))
-        run_name, step, epoch, topk, aa_p, best_step, best_fid, best_ckpt_path, logger, total_emission =\
+        run_name, step, epoch, topk, aa_p, best_step, best_fid, best_ckpt_path, logger, total_emission, best_eval_score = \
             ckpt.load_StudioGAN_ckpts(ckpt_dir=cfgs.RUN.ckpt_dir,
                                       load_best=cfgs.RUN.load_best,
                                       Gen=Gen,
@@ -329,12 +333,14 @@ def load_worker(local_rank, cfgs, gpus_per_node, run_name, hdf5_path):
         best_ckpt_path=best_ckpt_path,
         loss_list_dict=loss_list_dict,
         metric_dict_during_train=metric_dict_during_train,
+        best_eval_score=best_eval_score,
     )
 
     # -----------------------------------------------------------------------------
     # train GAN until "total_steps" generator updates
     # -----------------------------------------------------------------------------
     if cfgs.RUN.train:
+
         if global_rank == 0:
             logger.info("Start training!")
             tracker = EmissionsTracker()
@@ -343,13 +349,16 @@ def load_worker(local_rank, cfgs, gpus_per_node, run_name, hdf5_path):
         worker.training, worker.topk = True, topk
         worker.prepare_train_iter(epoch_counter=epoch)
         while step <= cfgs.OPTIMIZATION.total_steps:
+            # worker.validate_discriminator_classifier()
+            # _top1, _top5, _ce_loss = worker.validate_discriminator_classifier()
             if cfgs.OPTIMIZATION.d_first:
-                real_cond_loss, dis_acml_loss = worker.train_discriminator(current_step=step)
+                real_cond_loss, dis_acml_loss, disc_loss_dict = worker.train_discriminator(current_step=step)
                 gen_acml_loss = worker.train_generator(current_step=step)
             else:
                 gen_acml_loss = worker.train_generator(current_step=step)
-                real_cond_loss, dis_acml_loss = worker.train_discriminator(current_step=step)
+                real_cond_loss, dis_acml_loss, disc_loss_dict = worker.train_discriminator(current_step=step)
 
+            # _top1, _top5, _ce_loss = worker.validate_discriminator_classifier()
             if global_rank == 0 and (step + 1) % cfgs.RUN.print_every == 0:
                 try:
                     total_emission += tracker.stop()
@@ -361,10 +370,13 @@ def load_worker(local_rank, cfgs, gpus_per_node, run_name, hdf5_path):
                                             real_cond_loss=real_cond_loss,
                                             gen_acml_loss=gen_acml_loss,
                                             dis_acml_loss=dis_acml_loss,
-                                            total_emission=total_emission)
+                                            total_emission=total_emission,
+                                            disc_loss_dict=disc_loss_dict)
                 tracker = EmissionsTracker()
                 tracker.start()
             step += 1
+            if step % cfgs.RUN.save_every == 0:
+                worker
 
             if cfgs.LOSS.apply_topk:
                 if (epoch + 1) == worker.epoch_counter:
@@ -376,10 +388,10 @@ def load_worker(local_rank, cfgs, gpus_per_node, run_name, hdf5_path):
             if step % cfgs.RUN.save_every == 0:
                 # visuailize fake images
                 if global_rank == 0:
-                   worker.visualize_fake_images(num_cols=num_cols, current_step=step)
+                    worker.visualize_fake_images(num_cols=num_cols, current_step=step)
 
                 # evaluate GAN for monitoring purpose
-                if len(cfgs.RUN.eval_metrics) :
+                if len(cfgs.RUN.eval_metrics):
                     is_best = worker.evaluate(step=step, metrics=cfgs.RUN.eval_metrics, writing=True, training=True)
 
                 # save GAN in "./checkpoints/RUN_NAME/*"
