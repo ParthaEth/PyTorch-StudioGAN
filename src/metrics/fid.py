@@ -118,6 +118,7 @@ def calculate_fid(data_loader,
                                    DDP=cfgs.RUN.distributed_data_parallel,
                                    disable_tqdm=disable_tqdm,
                                    fake_feats=None)
+        np.save(cfgs.DATA.fid_file_path, (m1, s1))
 
     m2, s2 = calculate_moments(data_loader="N/A",
                                eval_model=eval_model,

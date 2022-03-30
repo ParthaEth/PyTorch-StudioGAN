@@ -953,12 +953,12 @@ class WORKER(object):
                     _curr_score = 0
 
                 if (self.best_eval_score is None or _curr_score < self.best_eval_score) and \
-                        self.MODEL.best_metric_name.upper() == 'FID':
+                        self.LOSS.best_metric_name.upper() == 'FID':
 
                     self.best_eval_score = _curr_score
                     is_best = True
                 elif (self.best_eval_score is None or _curr_score > self.best_eval_score) and \
-                        self.MODEL.best_metric_name.upper() != 'FID':
+                        self.LOSS.best_metric_name.upper() != 'FID':
                     self.best_eval_score = _curr_score
                     is_best = True
 
