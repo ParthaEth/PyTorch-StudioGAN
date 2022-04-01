@@ -19,7 +19,6 @@ from torch.utils.data.distributed import DistributedSampler
 import torch
 import torch.distributed as dist
 
-from codecarbon import EmissionsTracker
 from data_util import Dataset_
 from utils.style_ops import grid_sample_gradfix
 from utils.style_ops import conv2d_gradfix
@@ -343,8 +342,6 @@ def load_worker(local_rank, cfgs, gpus_per_node, run_name, hdf5_path):
 
         if global_rank == 0:
             logger.info("Start training!")
-            tracker = EmissionsTracker()
-            tracker.start()
 
         worker.training, worker.topk = True, topk
         worker.prepare_train_iter(epoch_counter=epoch)
@@ -360,11 +357,8 @@ def load_worker(local_rank, cfgs, gpus_per_node, run_name, hdf5_path):
 
             # _top1, _top5, _ce_loss = worker.validate_discriminator_classifier()
             if global_rank == 0 and (step + 1) % cfgs.RUN.print_every == 0:
-                try:
-                    total_emission += tracker.stop()
-                except TypeError:
-                    trivial_emission = tracker.stop()
-                    total_emission += 0.0
+
+                total_emission = 0.0
 
                 worker.log_train_statistics(current_step=step,
                                             real_cond_loss=real_cond_loss,
@@ -372,8 +366,7 @@ def load_worker(local_rank, cfgs, gpus_per_node, run_name, hdf5_path):
                                             dis_acml_loss=dis_acml_loss,
                                             total_emission=total_emission,
                                             disc_loss_dict=disc_loss_dict)
-                tracker = EmissionsTracker()
-                tracker.start()
+
             step += 1
             if step % cfgs.RUN.save_every == 0:
                 worker
