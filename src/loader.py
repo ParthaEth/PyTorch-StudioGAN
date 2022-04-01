@@ -43,7 +43,7 @@ def load_worker(local_rank, cfgs, gpus_per_node, run_name, hdf5_path):
     aa_p = cfgs.AUG.ada_initial_augment_p if cfgs.AUG.ada_initial_augment_p != "N/A" else cfgs.AUG.apa_initial_augment_p
     mu, sigma, eval_model, num_rows, num_cols = None, None, None, 10, 8
 
-    if cfgs.DATA.fid_file_path is not None:
+    if cfgs.DATA.fid_file_path is not None and os.path.exists(cfgs.DATA.fid_file_path):
         mu, sigma = np.load(cfgs.DATA.fid_file_path)
     # TODO Partha read npz file for fid above
     loss_list_dict = {"gen_loss": [], "dis_loss": [], "cls_loss": []}

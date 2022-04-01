@@ -2,7 +2,7 @@ DATA:
   name: "ImageNet"
   img_size: 128
   num_classes: 1000
-#  fid_file_path: None
+  fid_file_path: "/is/cluster/work/pghosh/datasets/imagenet_2012/ILSVRC/Data/CLS-LOC/inception_moments.npz"
 MODEL:
   backbone: "big_resnet_deep_legacy"
   g_cond_mtd: "cBN"

@@ -68,7 +68,7 @@ def calculate_moments(data_loader, eval_model, num_generate, batch_size, quantiz
         total_instance = num_generate
         acts = fake_feats.detach().cpu().numpy()[:num_generate]
     else:
-        total_instance = len(data_loader.dataset)
+        total_instance = min(len(data_loader.dataset), 50_000)
         data_iter = iter(data_loader)
         num_batches = math.ceil(float(total_instance) / float(batch_size))
         if DDP: num_batches = num_batches//world_size + 1
