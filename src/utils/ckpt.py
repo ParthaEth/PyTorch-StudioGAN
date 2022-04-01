@@ -92,7 +92,8 @@ def load_StudioGAN_ckpts(ckpt_dir, load_best, Gen, Dis, g_optimizer, d_optimizer
               load_misc=False,
               is_freezeD=is_freezeD)
 
-    seed, prev_run_name, step, epoch, topk, aa_p, best_step, best_fid, best_ckpt_path, total_emission =\
+    seed, prev_run_name, step, epoch, topk, aa_p, best_step, best_fid, best_ckpt_path, total_emission, \
+    best_eval_score =\
         load_ckpt(model=Dis,
                   optimizer=d_optimizer,
                   ckpt_path=Dis_ckpt_path,
@@ -132,7 +133,8 @@ def load_StudioGAN_ckpts(ckpt_dir, load_best, Gen, Dis, g_optimizer, d_optimizer
     if is_freezeD:
         prev_run_name, step, epoch, topk, aa_p, best_step, best_fid, best_ckpt_path, total_emission =\
             run_name, 0, 0, "initialize", None, 0, None, None, 0.0
-    return prev_run_name, step, epoch, topk, aa_p, best_step, best_fid, best_ckpt_path, logger, total_emission
+    return prev_run_name, step, epoch, topk, aa_p, best_step, best_fid, best_ckpt_path, logger, total_emission, \
+           best_eval_score
 
 
 def load_best_model(ckpt_dir, Gen, Dis, apply_g_ema, Gen_ema, ema):
