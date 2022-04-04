@@ -56,7 +56,6 @@ LOG_FORMAT = ("Step: {step:>6} "
               )
 
 
-
 class WORKER(object):
     def __init__(self, cfgs, run_name, Gen, Gen_mapping, Gen_synthesis, Dis, Gen_ema, Gen_ema_mapping, Gen_ema_synthesis,
                  ema, eval_model, train_dataloader, eval_dataloader, global_rank, local_rank, mu, sigma, logger, aa_p,
@@ -1735,5 +1734,6 @@ class WORKER(object):
                                  "Avg CE Loss {ce_loss.avg:.2f}".format(top1=valid_top1_acc, top5=valid_top5_acc,
                                                                 ce_loss=valid_loss))
         self.Dis.train()
-        self.logger.info(f'Finishd validation of discriminator classifier.')
+        if self.local_rank == 0:
+            self.logger.info(f'Finishd validation of discriminator classifier.')
         return valid_top1_acc.avg, valid_top5_acc.avg, valid_loss.avg
